@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Orders - Admin{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h1 class="h3 mb-0 text-gray-800">Manage Orders</h1>
+    </div>
+
+    <!-- Orders with Issues Alert -->
+    {% set orders_with_issues = orders|selectattr('issues_reported')|list %}
+    {% if orders_with_issues %}
+    <div class="alert alert-warning">
+        <i class="fas fa-exclamation-triangle me-2"></i>
+        There are {{ orders_with_issues|length }} orders with reported issues that need attention.
+    </div>
+    {% endif %}
+
+    <div class="card shadow mb-4">
+        <div class="card-header py-3 d-flex justify-content-between align-items-center">
+            <h6 class="m-0 font-weight-bold text-primary">All Orders ({{ orders|length }})</h6>
+            <div class="btn-group">
+                <button type="button" class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown">
+                    <i class="fas fa-filter fa-sm"></i> Filter
+                </button>
+                <ul class="dropdown-menu">
+                    <li><a class="dropdown-item filter-btn active" href="#" data-filter="all">All Orders</a></li>
+                    <li><a class="dropdown-item filter-btn" href="#" data-filter="pending">Pending</a></li>
+                    <li><a class="dropdown-item filter-btn" href="#" data-filter="shipped">Shipped</a></li>
+                    <li><a class="dropdown-item filter-btn" href="#" data-filter="completed">Completed</a></li>
+                    <li><a class="dropdown-item filter-btn" href="#" data-filter="issue_reported">With Issues</a></li>
+                </ul>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-bordered" id="ordersTable" width="100%" cellspacing="0">
+                    <thead>
+                        <tr>
+                            <th>Order ID</th>
+                            <th>Customer</th>
+                            <th>Amount</th>
+                            <th>Status</th>
+                            <th>Delivery Confirmed</th>
+                            <th>Rating</th>
+                            <th>Issues</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for order in orders %}
+                        <tr class="order-row" data-status="{{ order.status }}">
+                            <td class="fw-bold">#{{ order.id }}</td>
+                            <td>
+                                {{ order.user.fullname if order.user else 'Guest' }}
+                                <br>
+                                <small class="text-muted">{{ order.user.email if order.user else 'N/A' }}</small>
+                            </td>
+                            <td class="fw-bold">₦{{ "{:,.2f}".format(order.total_amount) }}</td>
+                            <td>
+                                <span class="badge bg-{{ 
+                                    'secondary' if order.status == 'pending' 
+                                    else 'info' if order.status == 'confirmed' 
+                                    else 'primary' if order.status == 'shipped' 
+                                    else 'success' if order.status == 'completed' 
+                                    else 'warning' if order.status == 'issue_reported'
+                                    else 'danger' 
+                                }}">
+                                    {{ order.status|title }}
+                                </span>
+                            </td>
+                            <td>
+                                {% if order.delivery_confirmed_at %}
+                                    <span class="badge bg-success">Yes</span>
+                                    <small class="text-muted d-block">{{ order.delivery_confirmed_at.strftime('%m/%d/%Y') }}</small>
+                                {% else %}
+                                    <span class="badge bg-warning">No</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if order.buyer_rating %}
+                                    {{ "⭐" * order.buyer_rating }}
+                                {% else %}
+                                    <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if order.issues_reported %}
+                                    <span class="badge bg-danger">Yes</span>
+                                {% else %}
+                                    <span class="badge bg-success">No</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="btn-group btn-group-sm">
+                                    <a href="{{ url_for('order_details', order_id=order.id) }}" class="btn btn-info" title="View Details">
+                                        <i class="fas fa-eye"></i>
+                                    </a>
+                                    {% if order.status == 'confirmed' %}
+                                    <form method="POST" action="{{ url_for('mark_order_shipped', order_id=order.id) }}" class="d-inline">
+                                        <button type="submit" class="btn btn-success" title="Mark as Shipped">
+                                            <i class="fas fa-shipping-fast"></i>
+                                        </button>
+                                    </form>
+                                    {% endif %}
+                                    {% if order.issues_reported %}
+                                    <button class="btn btn-warning resolve-issue" data-order-id="{{ order.id }}" 
+                                            data-bs-toggle="modal" data-bs-target="#resolveIssueModal" title="Resolve Issue">
+                                        <i class="fas fa-wrench"></i>
+                                    </button>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Resolve Issue Modal -->
+<div class="modal fade" id="resolveIssueModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Resolve Order Issue</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="resolveIssueForm" method="POST">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="resolution" class="form-label">Resolution Type</label>
+                        <select class="form-select" id="resolution" name="resolution" required>
+                            <option value="">Select resolution...</option>
+                            <option value="refund_issued">Full Refund Issued</option>
+                            <option value="partial_refund">Partial Refund</option>
+                            <option value="replacement_sent">Replacement Sent</option>
+                            <option value="credit_issued">Store Credit Issued</option>
+                            <option value="issue_resolved">Issue Resolved</option>
+                            <option value="customer_satisfied">Customer Satisfied</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="admin_notes" class="form-label">Resolution Notes</label>
+                        <textarea class="form-control" id="admin_notes" name="admin_notes" rows="3" 
+                                  placeholder="Describe how the issue was resolved..." required></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Resolve Issue</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Filter functionality
+    const filterButtons = document.querySelectorAll('.filter-btn');
+    const orderRows = document.querySelectorAll('.order-row');
+    
+    filterButtons.forEach(button => {
+        button.addEventListener('click', function(e) {
+            e.preventDefault();
+            const filter = this.getAttribute('data-filter');
+            
+            // Update active state
+            filterButtons.forEach(btn => btn.classList.remove('active'));
+            this.classList.add('active');
+            
+            // Filter rows
+            orderRows.forEach(row => {
+                const status = row.getAttribute('data-status');
+                
+                if (filter === 'all') {
+                    row.style.display = '';
+                } else {
+                    row.style.display = status === filter ? '' : 'none';
+                }
+            });
+        });
+    });
+    
+    // Issue resolution modal
+    const resolveButtons = document.querySelectorAll('.resolve-issue');
+    const resolveForm = document.getElementById('resolveIssueForm');
+    
+    resolveButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const orderId = this.getAttribute('data-order-id');
+            resolveForm.action = `/admin/orders/${orderId}/resolve-issue`;
+        });
+    });
+});
+</script>
+{% endblock %}
